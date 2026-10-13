@@ -16,7 +16,7 @@ and [tools/ghidra](tools/ghidra).
 
 ## Build and run
 
-### Fedora (one command)
+### Fedora / Ubuntu (one command)
 
 ```bash
 git clone https://github.com/trenbolone1122/aula-f75-linux.git
@@ -29,8 +29,8 @@ While the repository is private, clone it with the GitHub CLI instead:
 
 `install.sh` asks for your password when it needs sudo, then:
 
-1. Installs the build tools and libraries with `dnf`.
-2. Checks Rust. If Fedora's Rust is older than 1.95, it installs current Rust
+1. Installs build tools and libraries with your package manager (`dnf` or `apt`).
+2. Checks Rust. If the system's Rust is older than 1.95, it installs current Rust
    with the official rustup installer into `~/.cargo` (no sudo).
 3. Builds the app (the first build takes a few minutes).
 4. Installs `~/.local/bin/f75-studio` and an "F75 Studio" app menu entry.

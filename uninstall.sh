@@ -7,9 +7,11 @@ rm -f ~/.local/bin/f75-studio \
       ~/.local/share/applications/f75-studio.desktop \
       ~/.local/share/icons/hicolor/256x256/apps/f75-studio.png
 update-desktop-database ~/.local/share/applications >/dev/null 2>&1 || true
+gtk-update-icon-cache -q ~/.local/share/icons/hicolor >/dev/null 2>&1 || true
 echo "Removing the keyboard access rule (sudo)"
 sudo rm -f /etc/udev/rules.d/70-aula-f75.rules /etc/udev/rules.d/99-aula-f75.rules
 sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=hidraw --action=change || true
 if [ "${1:-}" = "--purge" ]; then
     rm -rf ~/.config/f75-studio
     echo "Profiles removed."

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F75 Studio installer for Fedora. Safe to run again to update.
+# F75 Studio installer for Linux (Fedora, Ubuntu/Debian, Arch). Safe to run again to update.
 # Installs build tools, builds the app, adds it to your app menu and gives your
 # user access to the keyboard. Asks for your password (sudo) for system steps.
 set -euo pipefail
@@ -13,8 +13,15 @@ if [ "$(id -u)" = 0 ]; then
     echo "Run ./install.sh as your normal user (not with sudo). It asks for the password when needed."
     exit 1
 fi
-if ! command -v dnf >/dev/null; then
-    echo "This installer is for Fedora (dnf). For other distros see \"Other distros\" in README.md."
+
+if command -v dnf >/dev/null 2>&1; then
+    PKG_MGR="dnf"
+elif command -v apt-get >/dev/null 2>&1; then
+    PKG_MGR="apt"
+elif command -v pacman >/dev/null 2>&1; then
+    PKG_MGR="pacman"
+else
+    echo "Unsupported package manager. Please install dependencies manually (see README.md)."
     exit 1
 fi
 
@@ -22,8 +29,21 @@ fi
 if command -v f75-studio >/dev/null; then timeout 5 f75-studio quit </dev/null >/dev/null 2>&1 || true; fi
 
 step "1/6 Build dependencies (sudo)"
-sudo dnf install -y rust cargo gcc pkgconf-pkg-config systemd-devel hidapi-devel \
-    libxkbcommon-devel wayland-devel mesa-libGL-devel libX11-devel pulseaudio-libs-devel
+case "$PKG_MGR" in
+    dnf)
+        sudo dnf install -y rust cargo gcc pkgconf-pkg-config systemd-devel hidapi-devel \
+            libxkbcommon-devel wayland-devel mesa-libGL-devel libX11-devel pulseaudio-libs-devel curl
+        ;;
+    apt)
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config libudev-dev libhidapi-dev \
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev libx11-dev libpulse-dev curl
+        ;;
+    pacman)
+        sudo pacman -S --needed --noconfirm base-devel hidapi libxkbcommon wayland \
+            mesa libx11 libpulse curl
+        ;;
+esac
 
 step "2/6 Rust toolchain"
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
@@ -34,14 +54,20 @@ elif command -v rustup >/dev/null; then
     note "Rust ${have:-none} is older than $RUST_MIN, updating with rustup"
     rustup update stable
 else
-    note "Fedora's Rust (${have:-none}) is older than $RUST_MIN."
+    note "System Rust (${have:-none}) is older than $RUST_MIN."
     note "Installing current Rust with rustup into ~/.cargo (no sudo, official installer)."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
     . "$HOME/.cargo/env"
 fi
 
-step "3/6 Building F75 Studio (first build takes a few minutes)"
-cargo build --release
+step "3/6 Building F75 Studio"
+bin="target/release/f75-studio"
+if [ -x "$bin" ] && [ -z "$(find src Cargo.toml Cargo.lock -newer "$bin" 2>/dev/null)" ]; then
+    note "Already built and up to date ($bin)"
+else
+    note "Building release binary (first build takes a few minutes)..."
+    cargo build --release
+fi
 
 step "4/6 Installing the app"
 install -Dm755 target/release/f75-studio ~/.local/bin/f75-studio
@@ -77,9 +103,13 @@ done
 step "6/6 Tray icon"
 tray_logout=0
 if [[ "${XDG_CURRENT_DESKTOP:-}" == *GNOME* ]]; then
-    # GNOME has no tray by default; this is Fedora's packaged AppIndicator extension.
+    # GNOME has no tray by default; ensure AppIndicator extension is installed.
     uuid=appindicatorsupport@rgcjonas.gmail.com
-    sudo dnf install -y gnome-shell-extension-appindicator
+    case "$PKG_MGR" in
+        dnf) sudo dnf install -y gnome-shell-extension-appindicator ;;
+        apt) sudo apt-get install -y gnome-shell-extension-appindicator ;;
+        pacman) note "On Arch, install gnome-shell-extension-appindicator via AUR if needed" ;;
+    esac
     if ! gnome-extensions enable "$uuid" 2>/dev/null; then
         cur=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo "@as []")
         if [[ "$cur" != *"$uuid"* ]]; then
