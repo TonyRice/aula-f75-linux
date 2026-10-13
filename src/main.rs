@@ -1,4 +1,5 @@
 mod audio;
+mod aula_music;
 mod device;
 mod doctor;
 mod fx;

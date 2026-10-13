@@ -40,11 +40,27 @@ pub enum Fx {
     Fire,
     Spectrum,
     Mirror,
+    /// One of AULA's own music modes (0..9), see aula_music.
+    Aula(u8),
 }
 
 pub const STUDIO: &[(Fx, &str)] =
     &[(Fx::Wave, "Wave"), (Fx::Breathe, "Breathe"), (Fx::Twinkle, "Twinkle"), (Fx::Plasma, "Plasma"), (Fx::Rain, "Matrix Rain"), (Fx::Fire, "Fire")];
-pub const AUDIO: &[(Fx, &str)] = &[(Fx::Spectrum, "Spectrum"), (Fx::Mirror, "Mirror")];
+use crate::aula_music::NAMES as M;
+pub const AUDIO: &[(Fx, &str)] = &[
+    (Fx::Spectrum, "Spectrum"),
+    (Fx::Mirror, "Mirror"),
+    (Fx::Aula(0), M[0]),
+    (Fx::Aula(1), M[1]),
+    (Fx::Aula(2), M[2]),
+    (Fx::Aula(3), M[3]),
+    (Fx::Aula(4), M[4]),
+    (Fx::Aula(5), M[5]),
+    (Fx::Aula(6), M[6]),
+    (Fx::Aula(7), M[7]),
+    (Fx::Aula(8), M[8]),
+    (Fx::Aula(9), M[9]),
+];
 
 /// Physical key geometry: led -> (x 0..1 left→right, y 0..1 top→bottom, column 0..20, row 0..5).
 /// Key centres span x 42.5-617.5 and y 44-250 on the layout canvas (6 rows).
@@ -153,6 +169,8 @@ impl Engine {
                     c[l] = sample(pal, (col as f32 - 10.0).abs() / 10.0 * 0.99);
                 }
             }),
+            Fx::Aula(_) => {} // drawn by aula_music
+
         }
         c
     }

@@ -16,6 +16,7 @@ pub struct Levels {
     pub bands: [f32; BANDS], // 0..1, smoothed
     pub bass: f32,
     pub error: Option<String>,
+    pub music: Vec<[i32; crate::aula_music::BANDS]>, // recent AULA band levels (before gain)
 }
 
 /// What the effects see each frame.
@@ -31,6 +32,11 @@ impl Audio {
         let l = self.levels.lock().unwrap();
         let k = |v: f32| (v * sensitivity).min(1.0);
         Snapshot { bands: l.bands.map(k), bass: k(l.bass) }
+    }
+
+    /// AULA's band levels with its gain and smoothing applied.
+    pub fn music(&self, gain: u8, smooth: u8) -> [i32; crate::aula_music::BANDS] {
+        crate::aula_music::levels(&self.levels.lock().unwrap().music, gain, smooth)
     }
 }
 
@@ -60,12 +66,12 @@ impl Drop for Audio {
 }
 
 fn run(levels: &Mutex<Levels>, stop: &AtomicBool) -> Result<(), String> {
-    let spec = Spec { format: Format::F32le, channels: 1, rate: RATE };
-    let attr = BufferAttr { maxlength: u32::MAX, tlength: u32::MAX, prebuf: u32::MAX, minreq: u32::MAX, fragsize: (N * 2) as u32 };
+    let spec = Spec { format: Format::F32le, channels: 2, rate: RATE };
+    let attr = BufferAttr { maxlength: u32::MAX, tlength: u32::MAX, prebuf: u32::MAX, minreq: u32::MAX, fragsize: (N * 4) as u32 };
     let pa = Simple::new(None, "F75 Studio", Direction::Record, Some("@DEFAULT_MONITOR@"), "audio sync", &spec, None, Some(&attr))
         .map_err(|e| format!("audio capture failed: {e} (is PipeWire/PulseAudio running?)"))?;
     let fft = FftPlanner::<f32>::new().plan_fft_forward(N);
-    let mut raw = vec![0u8; N * 4];
+    let mut raw = vec![0u8; N * 8];
     let window: Vec<f32> = (0..N).map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / N as f32).cos()).collect();
     // log-spaced band edges 40 Hz .. 12 kHz
     let edges: Vec<usize> = (0..=BANDS)
@@ -77,12 +83,17 @@ fn run(levels: &Mutex<Levels>, stop: &AtomicBool) -> Result<(), String> {
     let mut peak = 1e-3f32;
     while !stop.load(Ordering::Relaxed) {
         pa.read(&mut raw).map_err(|e| format!("audio read failed: {e}"))?;
-        let mut buf: Vec<Complex<f32>> = raw
-            .chunks_exact(4)
-            .zip(&window)
-            .map(|(b, w)| Complex::new(f32::from_le_bytes([b[0], b[1], b[2], b[3]]) * w, 0.0))
-            .collect();
+        let f = |b: &[u8]| f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+        let mut left: Vec<Complex<f32>> = raw.chunks_exact(8).map(|b| Complex::new(f(&b[0..4]), 0.0)).collect();
+        let mut buf: Vec<Complex<f32>> =
+            raw.chunks_exact(8).zip(&window).map(|(b, w)| Complex::new((f(&b[0..4]) + f(&b[4..8])) * 0.5 * w, 0.0)).collect();
         fft.process(&mut buf);
+        // AULA's levels: left channel, no window, one bin per band
+        fft.process(&mut left);
+        let music = crate::aula_music::BAND_HZ.map(|hz| {
+            let bin = (N as f64 * hz / RATE as f64) as usize;
+            if hz > RATE as f64 / 2.0 { 0 } else { crate::aula_music::raw_level(left[bin].norm_sqr()) }
+        });
         let mut bands = [0f32; BANDS];
         for (i, b) in bands.iter_mut().enumerate() {
             let (a, z) = (edges[i], edges[i + 1].max(edges[i] + 1));
@@ -96,6 +107,10 @@ fn run(levels: &Mutex<Levels>, stop: &AtomicBool) -> Result<(), String> {
             *o = if v > *o { v } else { *o * 0.82 + v * 0.18 }; // fast attack, slow release
         }
         l.bass = (l.bands[0] + l.bands[1] + l.bands[2] + l.bands[3]) / 4.0;
+        l.music.push(music);
+        if l.music.len() > 16 {
+            l.music.remove(0);
+        }
         drop(l);
     }
     Ok(())

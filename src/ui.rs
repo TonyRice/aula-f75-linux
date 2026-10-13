@@ -683,7 +683,7 @@ impl App {
         ui.add_space(22.0);
         let w = (resp.rect.width() - 3.0 * 12.0) / 4.0;
         let effect = if self.lv.audio {
-            fx::AUDIO.iter().find(|f| f.0 == self.lv.audio_fx).map(|f| f.1).unwrap_or("Audio")
+            fx::AUDIO.iter().find(|f| f.0 == self.lv.audio_fx).map(|f| f.1.split(" - ").next().unwrap_or(f.1)).unwrap_or("Audio")
         } else if let Some(f) = self.lv.fx {
             fx::STUDIO.iter().find(|x| x.0 == f).map(|x| x.1).unwrap_or("FX")
         } else {
@@ -1010,7 +1010,7 @@ impl App {
             });
             section(ui, "EFFECT");
             egui::Grid::new("audiofx").num_columns(2).spacing([8.0, 8.0]).show(ui, |ui| {
-                for (i, (f, name)) in fx::AUDIO.iter().enumerate() {
+                for (i, (f, name)) in fx::AUDIO.iter().filter(|f| !matches!(f.0, fx::Fx::Aula(_))).enumerate() {
                     if tile(ui, name, self.lv.audio_fx == *f, [162.0, 34.0]) {
                         self.lv.audio_fx = *f;
                     }
@@ -1019,9 +1019,39 @@ impl App {
                     }
                 }
             });
-            self.palette_picker(ui);
-            section(ui, "SENSITIVITY");
-            ui.add(egui::Slider::new(&mut self.lv.sensitivity, 0.4..=2.5).show_value(false));
+            section(ui, "AULA MUSIC");
+            for (f, name) in fx::AUDIO.iter().filter(|f| matches!(f.0, fx::Fx::Aula(_))) {
+                if tile(ui, name, self.lv.audio_fx == *f, [332.0, 30.0]) {
+                    self.lv.audio_fx = *f;
+                }
+                ui.add_space(4.0);
+            }
+            if matches!(self.lv.audio_fx, fx::Fx::Aula(_)) {
+                section(ui, "GAIN FACTOR");
+                ui.add(
+                    egui::Slider::new(&mut self.lv.gain, 0..=crate::aula_music::GAIN_STEPS - 1)
+                        .custom_formatter(|v, _| format!("x{:.1}", crate::aula_music::gain(v as u8))),
+                );
+                section(ui, "SMOOTHNESS");
+                ui.add(egui::Slider::new(&mut self.lv.smooth, 1..=10));
+                section(ui, "COLOR");
+                ui.horizontal(|ui| {
+                    if tile(ui, "ColorFull", self.lv.colorful, [110.0, 30.0]) {
+                        self.lv.colorful = !self.lv.colorful;
+                    }
+                    if !self.lv.colorful {
+                        for c in PALETTE.iter().take(7) {
+                            if swatch(ui, *c, self.lv.colour == *c).clicked() {
+                                self.lv.colour = *c;
+                            }
+                        }
+                    }
+                });
+            } else {
+                self.palette_picker(ui);
+                section(ui, "SENSITIVITY");
+                ui.add(egui::Slider::new(&mut self.lv.sensitivity, 0.4..=2.5).show_value(false));
+            }
             section(ui, "BRIGHTNESS");
             if ui.add(egui::Slider::new(&mut self.s.brightness, 0..=9).show_value(true)).changed() {
                 self.apply();

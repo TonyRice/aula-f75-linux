@@ -25,6 +25,11 @@ pub struct Live {
     pub speed: f32,
     pub sensitivity: f32,
     pub brightness: u8, // 0..9, applied to streamed frames
+    // AULA music modes
+    pub gain: u8,
+    pub smooth: u8,
+    pub colorful: bool,
+    pub colour: [u8; 3],
 }
 
 /// Brightness 0..9 as a linear LED level, on a curve that looks even to the eye (4/9 ~ half).
@@ -73,6 +78,10 @@ impl Core {
                 speed: 1.0,
                 sensitivity: 1.0,
                 brightness: pr.brightness,
+                gain: crate::aula_music::DEFAULT_GAIN,
+                smooth: crate::aula_music::DEFAULT_SMOOTH,
+                colorful: true,
+                colour: crate::aula_music::DEFAULT_COLOUR,
             }),
             frame: Mutex::new(None),
             bands: Mutex::new([0.0; BANDS]),
@@ -460,6 +469,7 @@ fn worker(rx: Receiver<Job>, tx: Sender<Event>, core: Arc<Core>) {
     };
     let (mut engine, mut audio, t0) = (fx::Engine::default(), None::<Audio>, Instant::now());
     let mut last_poll = Instant::now() - Duration::from_secs(60);
+    let (mut music, mut music_at, mut music_frame) = (crate::aula_music::Music::default(), Instant::now(), [[0u8; 3]; LED_COUNT]);
     loop {
         let live = *core.live.lock().unwrap();
         let wired = w.kb.as_ref().is_some_and(|k| k.link == Link::Wired);
@@ -493,7 +503,24 @@ fn worker(rx: Receiver<Job>, tx: Sender<Event>, core: Arc<Core>) {
             };
             let pal = fx::PALETTES[live.palette as usize % fx::PALETTES.len()].1;
             let f = if live.audio { live.audio_fx } else { live.fx.unwrap_or(Fx::Wave) };
-            let c = engine.frame(f, pal, t0.elapsed().as_secs_f32(), live.speed, &snap);
+            let c = match (f, &audio) {
+                (Fx::Aula(m), Some(a)) => {
+                    // AULA steps its music modes every 20 ms
+                    let step = Duration::from_millis(20);
+                    if music_at.elapsed() > step * 5 {
+                        music_at = Instant::now() - step;
+                    }
+                    if music_at.elapsed() >= step {
+                        let lv = a.music(live.gain, live.smooth);
+                        while music_at.elapsed() >= step {
+                            music_at += step;
+                            music_frame = music.step(m, &lv, live.colorful, crate::aula_music::colorref(live.colour));
+                        }
+                    }
+                    music_frame
+                }
+                _ => engine.frame(f, pal, t0.elapsed().as_secs_f32(), live.speed, &snap),
+            };
             *core.frame.lock().unwrap() = Some(c);
             *core.bands.lock().unwrap() = snap.bands;
             let was = w.kb.is_some();
