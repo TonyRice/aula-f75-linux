@@ -49,7 +49,11 @@ impl ksni::Tray for Tray {
                         if let Some(pr) = Profile::list().get(i).and_then(|n| Profile::load(n)) {
                             pr.save(); // marks it active
                             t.core.stop_live();
-                            t.core.live.lock().unwrap().palette = pr.palette;
+                            {
+                                let mut l = t.core.live.lock().unwrap();
+                                l.palette = pr.palette;
+                                l.brightness = pr.brightness;
+                            }
                             t.core.send(Job::ApplyProfile(Box::new(pr)));
                             t.core.profile_changed.store(true, std::sync::atomic::Ordering::SeqCst);
                             t.core.repaint();

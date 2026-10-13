@@ -138,6 +138,9 @@ impl App {
         if self.link.is_none() || self.link == Some(Link::Bluetooth) {
             return;
         }
+        if self.streaming() {
+            return; // brightness etc. only change how streamed frames are scaled
+        }
         if self.busy {
             self.pending = true;
             return;
@@ -325,15 +328,20 @@ impl App {
 
     fn shown_colours(&mut self, t: f32) -> Colours {
         let _ = t;
+        let shown = |c: Colours, b: u8| {
+            // screen colours are already gamma-encoded, so the preview scales linearly
+            let k = 0.12 + 0.88 * (b.min(9) as f32 / 9.0);
+            c.map(|p| p.map(|v| (v as f32 * k).round() as u8))
+        };
         if self.streaming() {
             if let Some(c) = *self.core.frame.lock().unwrap() {
-                return c;
+                return shown(c, self.s.brightness);
             }
         }
         // Built-in effects are animated by the keyboard itself and can't be read back,
         // so the preview is dimmed instead of showing the saved per-key colours.
         match EFFECTS[self.mode].0 {
-            p::CUSTOM_MODE => self.s.colours,
+            p::CUSTOM_MODE => shown(self.s.colours, self.s.brightness),
             0 => [[0; 3]; LED_COUNT],
             _ => self.s.colours.map(|c| c.map(|v| v / 8)),
         }
@@ -366,6 +374,7 @@ impl eframe::App for App {
             .show(ui, |ui| self.keyboard(ui, t, &colours));
         self.toasts.show(ui.ctx());
         self.lv.palette = self.s.palette;
+        self.lv.brightness = self.s.brightness;
         if self.lv != before {
             *self.core.live.lock().unwrap() = self.lv;
             self.core.refresh_tray();
@@ -1013,6 +1022,10 @@ impl App {
             self.palette_picker(ui);
             section(ui, "SENSITIVITY");
             ui.add(egui::Slider::new(&mut self.lv.sensitivity, 0.4..=2.5).show_value(false));
+            section(ui, "BRIGHTNESS");
+            if ui.add(egui::Slider::new(&mut self.s.brightness, 0..=9).show_value(true)).changed() {
+                self.apply();
+            }
         });
         if on {
             section(ui, "INPUT");

@@ -24,6 +24,17 @@ pub struct Live {
     pub palette: u8,
     pub speed: f32,
     pub sensitivity: f32,
+    pub brightness: u8, // 0..9, applied to streamed frames
+}
+
+/// Brightness 0..9 as a linear LED level, on a curve that looks even to the eye (4/9 ~ half).
+pub fn level(b: u8) -> f32 {
+    (b.min(9) as f32 / 9.0).powf(2.2)
+}
+
+pub fn dim(c: &Colours, b: u8) -> Colours {
+    let k = level(b);
+    c.map(|p| p.map(|v| (v as f32 * k).round() as u8))
 }
 
 impl Live {
@@ -61,6 +72,7 @@ impl Core {
                 palette: pr.palette,
                 speed: 1.0,
                 sensitivity: 1.0,
+                brightness: pr.brightness,
             }),
             frame: Mutex::new(None),
             bands: Mutex::new([0.0; BANDS]),
@@ -181,6 +193,9 @@ struct Worker {
     keymaps: HashMap<u8, Vec<u8>>,
     backups: HashMap<u8, Vec<u8>>,
     tx: Sender<Event>,
+    /// The keyboard's own brightness is held at 9 while we stream, so streamed frames are only
+    /// dimmed once (here). Any lighting write clears this.
+    held: bool,
 }
 
 fn codes(b: &[u8]) -> Vec<[u8; 4]> {
@@ -200,9 +215,12 @@ impl Worker {
             *self.core.link.lock().unwrap() = Some(kb.link);
             self.keymaps.clear();
             self.backups.clear();
+            self.held = false;
+            // while streaming, the stored brightness is the held 9, not the user's setting
+            let streaming = self.core.live.lock().unwrap().streaming();
             if let Ok(online) = kb.online() {
                 let _ = self.tx.send(Event::Online(online));
-                if online && !kb.dry() {
+                if online && !kb.dry() && !streaming {
                     if let Ok(b) = kb.get_led_block() {
                         if let Some((mode, brightness, speed, colour)) = p::effect_from_block(&b) {
                             let hw = b[p::SLEEP_OFFSET];
@@ -269,10 +287,12 @@ impl Worker {
                 None
             }
             Job::Effect { mode, brightness, speed, colour } => {
+                self.held = false;
                 self.ensure()?.set_effect(mode, brightness, speed, colour)?;
                 Some("Lighting updated".into())
             }
             Job::PerKey { colours, brightness } => {
+                self.held = false;
                 self.ensure()?.set_per_key(&colours, brightness)?;
                 Some("Per-key colours saved to keyboard".into())
             }
@@ -281,7 +301,13 @@ impl Worker {
                 Some(if s == 0 { "Sleep disabled - lights stay on".into() } else { format!("Sleep after {}", sleep_label(s)) })
             }
             Job::Frame(c) => {
-                self.ensure()?.realtime(&c)?;
+                // studio FX, audio sync and LIVE painting: dimmed here by the brightness setting
+                let b = self.core.live.lock().unwrap().brightness;
+                if !self.held {
+                    self.ensure()?.set_effect(p::CUSTOM_MODE, 9, 0, 0)?;
+                    self.held = true;
+                }
+                self.ensure()?.realtime(&dim(&c, b))?;
                 None
             }
             Job::LoadKeymap(layer) => {
@@ -337,6 +363,7 @@ impl Worker {
                 None
             }
             Job::ApplyProfile(pr) => {
+                self.held = false;
                 {
                     let kb = self.ensure()?;
                     if pr.mode == p::CUSTOM_MODE {
@@ -429,6 +456,7 @@ fn worker(rx: Receiver<Job>, tx: Sender<Event>, core: Arc<Core>) {
         keymaps: HashMap::new(),
         backups: HashMap::new(),
         tx: tx.clone(),
+        held: false,
     };
     let (mut engine, mut audio, t0) = (fx::Engine::default(), None::<Audio>, Instant::now());
     let mut last_poll = Instant::now() - Duration::from_secs(60);
