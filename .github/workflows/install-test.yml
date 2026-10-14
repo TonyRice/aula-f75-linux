@@ -79,7 +79,8 @@ jobs:
           #!/bin/sh
           exit 0
           EOF
-          install -Dm755 /usr/local/sbin/udevadm /usr/local/bin/udevadm
+          [ /usr/local/sbin/udevadm -ef /usr/local/bin/udevadm ] || \
+            install -Dm755 /usr/local/sbin/udevadm /usr/local/bin/udevadm
 
           useradd -m -s /bin/bash builder
           cat > /etc/sudoers.d/builder <<'EOF'
