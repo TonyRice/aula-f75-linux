@@ -16,7 +16,7 @@ and [tools/ghidra](tools/ghidra).
 
 ## Build and run
 
-### Fedora / Ubuntu (one command)
+### Fedora, Debian / Ubuntu, Arch (one command)
 
 ```bash
 git clone https://github.com/trenbolone1122/aula-f75-linux.git
@@ -29,13 +29,14 @@ While the repository is private, clone it with the GitHub CLI instead:
 
 `install.sh` asks for your password when it needs sudo, then:
 
-1. Installs build tools and libraries with your package manager (`dnf` or `apt`).
+1. Installs build tools and libraries with your package manager (`dnf`, `apt` or `pacman`).
 2. Checks Rust. If the system's Rust is older than 1.95, it installs current Rust
    with the official rustup installer into `~/.cargo` (no sudo).
 3. Builds the app (the first build takes a few minutes).
 4. Installs `~/.local/bin/f75-studio` and an "F75 Studio" app menu entry.
 5. Adds a udev rule so your user can use the keyboard without sudo.
-6. On GNOME, installs and enables the AppIndicator extension for the tray icon.
+6. On GNOME, installs (`dnf`, `apt` or `pacman`) and enables the AppIndicator
+   extension for the tray icon (skipped on Ubuntu where it is built in).
 
 Then open **F75 Studio** from the app menu, or run `f75-studio`. On GNOME, log
 out and back in once after the first install to see the tray icon.
