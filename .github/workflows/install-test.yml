@@ -69,7 +69,7 @@ jobs:
               pacman -Syu --noconfirm sudo
               ;;
             fedora:*)
-              dnf install -y sudo
+              dnf install -y sudo util-linux shadow-utils
               ;;
           esac
 
